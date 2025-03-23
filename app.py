@@ -451,40 +451,58 @@ def generate_image(prompt, key_manager, num_images=4):
         for i in range(num_images):
             progress_placeholder.info(f"이미지 {i+1}/{num_images}를 생성 중입니다... 잠시만 기다려주세요.")
             
-            # 이미지 생성에 gemini-2.0-flash-exp-image-generation 모델 사용
-            response = requests.post(
-                'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent',
-                headers=headers,
-                data=json.dumps(payload),
-                timeout=60
-            )
-            
-            data = response.json()
-            
-            if 'candidates' in data and len(data['candidates']) > 0 and 'content' in data['candidates'][0]:
-                parts = data['candidates'][0]['content']['parts']
+            try:
+                # 이미지 생성에 gemini-2.0-flash-exp-image-generation 모델 사용
+                response = requests.post(
+                    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent',
+                    headers=headers,
+                    data=json.dumps(payload),
+                    timeout=60
+                )
                 
-                for part in parts:
-                    if 'inlineData' in part and 'data' in part['inlineData']:
-                        img_data = part['inlineData']['data']
-                        img_bytes = base64.b64decode(img_data)
-                        img = Image.open(io.BytesIO(img_bytes))
-                        images.append(img)
-                        break
-            else:
-                with st.expander("API 응답 상세 정보", expanded=False):
-                    st.json(data)
+                if response.status_code != 200:
+                    st.warning(f"API 응답 오류 (상태 코드: {response.status_code}): {response.text}")
+                    continue
                 
+                try:
+                    data = response.json()
+                except json.JSONDecodeError:
+                    st.warning("API 응답을 JSON으로 파싱하는 데 실패했습니다.")
+                    continue
+                
+                if 'candidates' in data and len(data['candidates']) > 0 and 'content' in data['candidates'][0]:
+                    parts = data['candidates'][0]['content']['parts']
+                    
+                    image_found = False
+                    for part in parts:
+                        if 'inlineData' in part and 'data' in part['inlineData']:
+                            try:
+                                img_data = part['inlineData']['data']
+                                img_bytes = base64.b64decode(img_data)
+                                img = Image.open(io.BytesIO(img_bytes))
+                                images.append(img)
+                                image_found = True
+                                break
+                            except Exception as e:
+                                st.warning(f"이미지 데이터 처리 중 오류: {str(e)}")
+                    
+                    if not image_found:
+                        st.warning(f"이미지 {i+1}: API 응답에 이미지 데이터가 없습니다.")
+                else:
+                    st.warning(f"이미지 {i+1}: API 응답에 필요한 데이터가 포함되어 있지 않습니다.")
+                    with st.expander("API 응답 상세 정보", expanded=False):
+                        st.json(data)
+            except requests.exceptions.RequestException as e:
+                st.warning(f"이미지 {i+1} 생성 요청 중 오류: {str(e)}")
+            except Exception as e:
+                st.warning(f"이미지 {i+1} 생성 중 예상치 못한 오류: {str(e)}")
+        
         progress_placeholder.empty()
         
-        if not images:
-            with st.expander("API 응답 상세 정보", expanded=False):
-                st.json(data)
-            
         return images
     except Exception as e:
         st.error(f"이미지 생성 중 오류가 발생했습니다: {e}")
-        return None
+        return []
 
 # 이미지와 프롬프트를 사용해 이미지 수정 함수
 def modify_image(image, prompt, key_manager):
@@ -496,10 +514,19 @@ def modify_image(image, prompt, key_manager):
             st.error("사용 가능한 API 키가 없습니다.")
             return None
         
+        # 이미지 유효성 검사
+        if image is None or not isinstance(image, Image.Image):
+            st.error("유효한 이미지가 아닙니다.")
+            return None
+            
         # 이미지를 바이트로 변환
-        buffered = io.BytesIO()
-        image.save(buffered, format="PNG")
-        img_str = base64.b64encode(buffered.getvalue()).decode()
+        try:
+            buffered = io.BytesIO()
+            image.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+        except Exception as e:
+            st.error(f"이미지 인코딩 중 오류: {str(e)}")
+            return None
         
         payload = {
             "contents": [
@@ -529,28 +556,47 @@ def modify_image(image, prompt, key_manager):
         }
         
         with st.spinner('이미지를 수정 중입니다...'):
-            # 이미지 수정에 gemini-2.0-flash-exp-image-generation 모델 사용
-            response = requests.post(
-                'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent',
-                headers=headers,
-                data=json.dumps(payload),
-                timeout=60
-            )
-            
-            data = response.json()
-            
-            if 'candidates' in data and len(data['candidates']) > 0 and 'content' in data['candidates'][0]:
-                parts = data['candidates'][0]['content']['parts']
+            try:
+                # 이미지 수정에 gemini-2.0-flash-exp-image-generation 모델 사용
+                response = requests.post(
+                    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent',
+                    headers=headers,
+                    data=json.dumps(payload),
+                    timeout=60
+                )
                 
-                for part in parts:
-                    if 'inlineData' in part and 'data' in part['inlineData']:
-                        img_data = part['inlineData']['data']
-                        img_bytes = base64.b64decode(img_data)
-                        modified_img = Image.open(io.BytesIO(img_bytes))
-                        return modified_img
-            else:
-                with st.expander("API 응답 상세 정보", expanded=False):
-                    st.json(data)
+                if response.status_code != 200:
+                    st.warning(f"API 응답 오류 (상태 코드: {response.status_code}): {response.text}")
+                    return None
+                
+                try:
+                    data = response.json()
+                except json.JSONDecodeError:
+                    st.warning("API 응답을 JSON으로 파싱하는 데 실패했습니다.")
+                    return None
+                
+                if 'candidates' in data and len(data['candidates']) > 0 and 'content' in data['candidates'][0]:
+                    parts = data['candidates'][0]['content']['parts']
+                    
+                    for part in parts:
+                        if 'inlineData' in part and 'data' in part['inlineData']:
+                            try:
+                                img_data = part['inlineData']['data']
+                                img_bytes = base64.b64decode(img_data)
+                                modified_img = Image.open(io.BytesIO(img_bytes))
+                                return modified_img
+                            except Exception as e:
+                                st.warning(f"수정된 이미지 데이터 처리 중 오류: {str(e)}")
+                                return None
+                    
+                    st.warning("API 응답에 이미지 데이터가 없습니다.")
+                else:
+                    st.warning("API 응답에 필요한 데이터가 포함되어 있지 않습니다.")
+                    with st.expander("API 응답 상세 정보", expanded=False):
+                        st.json(data)
+                return None
+            except requests.exceptions.RequestException as e:
+                st.warning(f"이미지 수정 요청 중 오류: {str(e)}")
                 return None
     except Exception as e:
         st.error(f"이미지 수정 중 오류가 발생했습니다: {e}")
@@ -653,49 +699,61 @@ def main():
                         images = generate_image(actual_prompt, key_manager, num_images=images_to_generate)
                     
                     if images and len(images) > 0:
-                        # 안전하지 않은 프롬프트인 경우 작은 알림 표시
-                        if not safety_result["safe"]:
-                            st.markdown('<div class="safety-message">AI가 최적의 결과를 생성했습니다.</div>', unsafe_allow_html=True)
-                        
-                        st.success(f"{len(images)}개의 이미지가 생성되었습니다!")
-                        
-                        # 이미지 개수에 따라 열 수 조정
-                        if len(images) <= 2:
-                            img_cols = st.columns(len(images))
-                        else:
-                            rows = (len(images) + 1) // 2
-                            img_cols = [st.columns(2) for _ in range(rows)]
-                        
-                        # 이미지 표시
-                        for i, img in enumerate(images):
-                            if img is not None:  # None 체크 추가
-                                row, col = divmod(i, 2)
-                                
-                                # 레이아웃 설정에 따라 이미지 표시
-                                if len(images) <= 2:
-                                    with img_cols[i]:
-                                        st.image(img, caption=f"생성된 이미지 #{i+1}", use_container_width=True)
-                                        
-                                        # 이미지 다운로드 기능
-                                        buffered = io.BytesIO()
-                                        img.save(buffered, format="PNG")
-                                        img_str = base64.b64encode(buffered.getvalue()).decode()
-                                        
-                                        href = f'<a href="data:image/png;base64,{img_str}" download="generated_image{i+1}.png" class="download-btn">이미지 다운로드</a>'
-                                        st.markdown(href, unsafe_allow_html=True)
-                                else:
-                                    with img_cols[row][col]:
-                                        st.image(img, caption=f"생성된 이미지 #{i+1}", use_container_width=True)
-                                        
-                                        # 이미지 다운로드
-                                        buffered = io.BytesIO()
-                                        img.save(buffered, format="PNG")
-                                        img_str = base64.b64encode(buffered.getvalue()).decode()
-                                        
-                                        href = f'<a href="data:image/png;base64,{img_str}" download="generated_image{i+1}.png" class="download-btn">이미지 다운로드</a>'
-                                        st.markdown(href, unsafe_allow_html=True)
+                        try:
+                            # 안전하지 않은 프롬프트인 경우 작은 알림 표시
+                            if not safety_result["safe"]:
+                                st.markdown('<div class="safety-message">AI가 최적의 결과를 생성했습니다.</div>', unsafe_allow_html=True)
+                            
+                            st.success(f"{len(images)}개의 이미지가 생성되었습니다!")
+                            
+                            # 이미지 개수에 따라 열 수 조정
+                            if len(images) <= 2:
+                                img_cols = st.columns(len(images))
                             else:
-                                st.warning(f"이미지 #{i+1}을 생성하는 데 문제가 발생했습니다.")
+                                rows = (len(images) + 1) // 2
+                                img_cols = [st.columns(2) for _ in range(rows)]
+                            
+                            # 이미지 표시
+                            for i, img in enumerate(images):
+                                try:
+                                    if img is not None and isinstance(img, Image.Image):  # 타입 체크 추가
+                                        row, col = divmod(i, 2)
+                                        
+                                        # 레이아웃 설정에 따라 이미지 표시
+                                        if len(images) <= 2:
+                                            with img_cols[i]:
+                                                st.image(img, caption=f"생성된 이미지 #{i+1}", use_container_width=True)
+                                                
+                                                # 이미지 다운로드 기능
+                                                try:
+                                                    buffered = io.BytesIO()
+                                                    img.save(buffered, format="PNG")
+                                                    img_str = base64.b64encode(buffered.getvalue()).decode()
+                                                    
+                                                    href = f'<a href="data:image/png;base64,{img_str}" download="generated_image{i+1}.png" class="download-btn">이미지 다운로드</a>'
+                                                    st.markdown(href, unsafe_allow_html=True)
+                                                except Exception as e:
+                                                    st.warning(f"이미지 다운로드 준비 중 오류 발생: {str(e)}")
+                                        else:
+                                            with img_cols[row][col]:
+                                                st.image(img, caption=f"생성된 이미지 #{i+1}", use_container_width=True)
+                                                
+                                                # 이미지 다운로드
+                                                try:
+                                                    buffered = io.BytesIO()
+                                                    img.save(buffered, format="PNG")
+                                                    img_str = base64.b64encode(buffered.getvalue()).decode()
+                                                    
+                                                    href = f'<a href="data:image/png;base64,{img_str}" download="generated_image{i+1}.png" class="download-btn">이미지 다운로드</a>'
+                                                    st.markdown(href, unsafe_allow_html=True)
+                                                except Exception as e:
+                                                    st.warning(f"이미지 다운로드 준비 중 오류 발생: {str(e)}")
+                                    else:
+                                        st.warning(f"이미지 #{i+1}을 생성했으나 표시할 수 없습니다.")
+                                except Exception as e:
+                                    st.error(f"이미지 #{i+1} 표시 중 오류 발생: {str(e)}")
+                        except Exception as e:
+                            st.error(f"이미지 표시 중 오류 발생: {str(e)}")
                     else:
                         st.error("이미지 생성에 실패했습니다. 다시 시도해주세요.")
                         with st.expander("자세한 정보"):
@@ -924,27 +982,34 @@ def main():
                                     modified_images.append(modified_img)
                         
                         if modified_images and len(modified_images) > 0:
-                            # 안전하지 않은 프롬프트인 경우 작은 알림 표시
-                            if not safety_result["safe"]:
-                                st.markdown('<div class="safety-message">입력 내용에 적절하지 않은 내용이 있어 AI가 안전한 대체 결과를 생성했습니다.</div>', unsafe_allow_html=True)
-                            
-                            # 결과 이미지 표시
-                            st.subheader("AI로 향상된 그림")
-                            img_cols = st.columns(len(modified_images))
-                            for i, mod_img in enumerate(modified_images):
-                                if mod_img is not None:  # None 체크 추가
-                                    with img_cols[i]:
-                                        st.image(mod_img, caption=f"향상된 이미지 #{i+1}", use_container_width=True)
-                                        
-                                        # 이미지 다운로드
-                                        buffered = io.BytesIO()
-                                        mod_img.save(buffered, format="PNG")
-                                        img_str = base64.b64encode(buffered.getvalue()).decode()
-                                        
-                                        href = f'<a href="data:image/png;base64,{img_str}" download="enhanced_image{i+1}.png" class="download-btn">이미지 다운로드</a>'
-                                        st.markdown(href, unsafe_allow_html=True)
-                                else:
-                                    st.warning(f"향상된 이미지 #{i+1}을 생성하는 데 문제가 발생했습니다.")
+                            try:
+                                # 안전하지 않은 프롬프트인 경우 작은 알림 표시
+                                if not safety_result["safe"]:
+                                    st.markdown('<div class="safety-message">입력 내용에 적절하지 않은 내용이 있어 AI가 안전한 대체 결과를 생성했습니다.</div>', unsafe_allow_html=True)
+                                
+                                # 결과 이미지 표시
+                                st.subheader("AI로 향상된 그림")
+                                img_cols = st.columns(len(modified_images))
+                                for i, mod_img in enumerate(modified_images):
+                                    try:
+                                        if mod_img is not None and isinstance(mod_img, Image.Image):  # 타입 체크 추가
+                                            with img_cols[i]:
+                                                st.image(mod_img, caption=f"향상된 이미지 #{i+1}", use_container_width=True)
+                                                
+                                                # 이미지 다운로드
+                                                try:
+                                                    buffered = io.BytesIO()
+                                                    mod_img.save(buffered, format="PNG")
+                                                    img_str = base64.b64encode(buffered.getvalue()).decode()
+                                                    
+                                                    href = f'<a href="data:image/png;base64,{img_str}" download="enhanced_image{i+1}.png" class="download-btn">이미지 다운로드</a>'
+                                                    st.markdown(href, unsafe_allow_html=True)
+                                                except Exception as e:
+                                                    st.warning(f"향상된 이미지 다운로드 준비 중 오류 발생: {str(e)}")
+                                    except Exception as e:
+                                        st.error(f"향상된 이미지 #{i+1} 표시 중 오류 발생: {str(e)}")
+                            except Exception as e:
+                                st.error(f"향상된 이미지 표시 중 오류 발생: {str(e)}")
                         else:
                             st.error("이미지를 향상시키는 데 문제가 발생했습니다. 다시 시도해주세요.")
                 else:
