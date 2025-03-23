@@ -383,37 +383,174 @@ def check_prompt_safety(prompt, key_manager):
                         {"text": f'User prompt: "{prompt}"'}
                     ]
                 }
-            ]
+            ],
+            "generation_config": {
+                "temperature": 0.2,
+                "top_p": 0.95,
+                "max_output_tokens": 1024
+            }
         }
         
         headers = {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': api_key
+            "Content-Type": "application/json"
         }
         
+        # API 요청
         response = requests.post(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={api_key}",
             headers=headers,
-            data=json.dumps(payload)
+            json=payload
         )
         
-        data = response.json()
+        if response.status_code == 200:
+            response_json = response.json()
+            
+            # 응답 텍스트 추출
+            candidates = response_json.get("candidates", [])
+            if candidates and len(candidates) > 0:
+                content = candidates[0].get("content", {})
+                parts = content.get("parts", [])
+                
+                if parts and "text" in parts[0]:
+                    response_text = parts[0]["text"].strip()
+                    
+                    # 응답 분석
+                    if FALLBACK_PROMPT in response_text:
+                        return {"safe": False, "safePrompt": FALLBACK_PROMPT}
+                    else:
+                        return {"safe": True, "safePrompt": response_text}
         
-        if 'candidates' not in data or len(data['candidates']) == 0 or 'content' not in data['candidates'][0]:
-            return {"safe": False, "safePrompt": FALLBACK_PROMPT}
-        
-        checked_prompt = data['candidates'][0]['content']['parts'][0]['text'].strip()
-        
-        # 반환된 프롬프트가 대체 프롬프트와 일치하면 안전하지 않다고 판단
-        is_safe = FALLBACK_PROMPT not in checked_prompt
-        
-        return {
-            "safe": is_safe,
-            "safePrompt": checked_prompt if is_safe else FALLBACK_PROMPT
-        }
-    except Exception as e:
-        st.error(f"안전 검사 중 오류가 발생했습니다: {e}")
+        # 기본 안전하지 않음 응답
         return {"safe": False, "safePrompt": FALLBACK_PROMPT}
+    except Exception as e:
+        return {"safe": False, "safePrompt": FALLBACK_PROMPT}
+
+# 이미지 안전성 검사 함수
+def check_image_safety(image, key_manager):
+    """이미지의 안전성을 검사하는 함수"""
+    
+    import re
+    from PIL import ImageDraw
+    
+    SAFETY_PROMPT = """You are an AI content safety evaluator for K–12 education. 
+    Your task is to assess whether the uploaded image is appropriate for K-12 students (ages 5-18).
+    
+    Analyze the image carefully and determine:
+    1. Does it contain inappropriate, harmful, violent, graphic, sexual, or otherwise unsuitable content for K–12 students?
+    2. Is it safe and educational for classroom use?
+    
+    Return ONLY a JSON response with two fields:
+    {
+      "safe": (true or false),
+      "reason": (brief explanation if unsafe, or "Appropriate for K-12 students" if safe)
+    }"""
+    
+    try:
+        api_key = key_manager.get_random_key()
+        if api_key is None:
+            return {"safe": False, "reason": "API 키를 사용할 수 없어 안전성 검사에 실패했습니다. 기본적으로 안전하지 않은 것으로 처리합니다."}
+        
+        # 이미지를 Base64로 인코딩
+        buffered = io.BytesIO()
+        image.save(buffered, format="PNG")
+        img_str = base64.b64encode(buffered.getvalue()).decode()
+        
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": SAFETY_PROMPT},
+                        {
+                            "inline_data": {
+                                "mime_type": "image/png",
+                                "data": img_str
+                            }
+                        }
+                    ]
+                }
+            ],
+            "generation_config": {
+                "temperature": 0.2,
+                "top_p": 0.95,
+                "max_output_tokens": 1024
+            }
+        }
+        
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        # API 요청
+        response = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={api_key}",
+            headers=headers,
+            json=payload
+        )
+        
+        if response.status_code == 200:
+            response_json = response.json()
+            
+            # 응답 텍스트 추출
+            candidates = response_json.get("candidates", [])
+            if candidates and len(candidates) > 0:
+                content = candidates[0].get("content", {})
+                parts = content.get("parts", [])
+                
+                if parts and "text" in parts[0]:
+                    response_text = parts[0]["text"]
+                    
+                    # JSON 형식으로 된 응답 텍스트에서 JSON 부분만 추출
+                    try:
+                        # JSON 문자열 찾기
+                        json_match = re.search(r'\{.*?\}', response_text, re.DOTALL)
+                        if json_match:
+                            json_str = json_match.group(0)
+                            result = json.loads(json_str)
+                            
+                            # 필요한 키가 있는지 확인
+                            if "safe" in result:
+                                return result
+                    except json.JSONDecodeError:
+                        pass
+                        
+                    # JSON 파싱 실패 시 텍스트 기반 파싱 시도
+                    if "unsafe" in response_text.lower() or "not appropriate" in response_text.lower() or "not suitable" in response_text.lower():
+                        return {"safe": False, "reason": "이미지가 K-12 학생에게 적합하지 않습니다."}
+                    elif "safe" in response_text.lower() or "appropriate" in response_text.lower():
+                        return {"safe": True, "reason": "이미지가 K-12 학생에게 적합합니다."}
+            
+            # 기본 안전하지 않음 응답
+            return {"safe": False, "reason": "이미지 안전성을 확인할 수 없습니다. 기본적으로 안전하지 않은 것으로 처리합니다."}
+        else:
+            return {"safe": False, "reason": f"API 응답 오류 (상태 코드: {response.status_code})"}
+    except Exception as e:
+        return {"safe": False, "reason": f"이미지 안전성 검사 중 오류 발생: {str(e)}"}
+
+# 이미지 생성에 사용할 대체 이미지 URL
+FALLBACK_IMAGE_URL = "https://cdn-icons-png.flaticon.com/512/1250/1250615.png"
+
+# 안전하지 않은 이미지 대체 함수
+def get_safe_placeholder_image():
+    """안전하지 않은 이미지를 대체할 기본 이미지를 반환하는 함수"""
+    try:
+        # 기본 이미지 URL에서 이미지 다운로드
+        response = requests.get(FALLBACK_IMAGE_URL)
+        if response.status_code == 200:
+            return Image.open(io.BytesIO(response.content))
+        else:
+            # URL에서 다운로드 실패 시 텍스트 기반 이미지 생성
+            from PIL import ImageDraw
+            img = Image.new('RGB', (400, 400), color=(255, 255, 255))
+            d = ImageDraw.Draw(img)
+            d.text((100, 200), "안전한 콘텐츠만 사용해주세요", fill=(0, 0, 0))
+            return img
+    except Exception:
+        # 오류 발생 시 빈 이미지 생성
+        from PIL import ImageDraw
+        img = Image.new('RGB', (400, 400), color=(255, 255, 255))
+        d = ImageDraw.Draw(img)
+        d.text((100, 200), "안전한 콘텐츠만 사용해주세요", fill=(0, 0, 0))
+        return img
 
 # 이미지 생성 함수
 def generate_image(prompt, key_manager, num_images=4):
@@ -958,7 +1095,17 @@ def main():
                     if not enhance_prompt.strip():
                         st.warning("그림 향상 설명을 입력해주세요.")
                     else:
-                        # 안전성 검사
+                        # 이미지 안전성 검사
+                        with st.spinner("그림 안전성 검사 중..."):
+                            image_safety_result = check_image_safety(st.session_state.current_image, key_manager)
+                            
+                        if not image_safety_result["safe"]:
+                            st.error(f"안전하지 않은 그림이 감지되었습니다: {image_safety_result['reason']}")
+                            st.warning("안전한 그림만 사용해주세요. AI가 안전한 대체 이미지를 생성합니다.")
+                            # 안전하지 않은 이미지를 대체 이미지로 교체
+                            st.session_state.current_image = get_safe_placeholder_image()
+                        
+                        # 프롬프트 안전성 검사
                         with st.spinner("입력 내용 처리 중..."):
                             safety_result = check_prompt_safety(enhance_prompt, key_manager)
                         
@@ -1035,6 +1182,17 @@ def main():
             if uploaded_file is not None:
                 # 이미지 업로드 처리
                 image = Image.open(uploaded_file)
+
+                # 이미지 안전성 검사
+                with st.spinner("이미지 안전성 검사 중..."):
+                    image_safety_result = check_image_safety(image, key_manager)
+                
+                if not image_safety_result["safe"]:
+                    st.error(f"안전하지 않은 이미지가 감지되었습니다: {image_safety_result['reason']}")
+                    st.warning("안전한 이미지만 업로드해주세요. AI가 안전한 대체 이미지를 제공합니다.")
+                    # 안전하지 않은 이미지를 대체 이미지로 교체
+                    image = get_safe_placeholder_image()
+
                 st.image(image, caption="업로드된 이미지", use_column_width=True)
                 
                 # 프롬프트 입력
