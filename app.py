@@ -1102,8 +1102,18 @@ def main():
                         if not image_safety_result["safe"]:
                             st.error(f"안전하지 않은 그림이 감지되었습니다: {image_safety_result['reason']}")
                             st.warning("안전한 그림만 사용해주세요. AI가 안전한 대체 이미지를 생성합니다.")
-                            # 안전하지 않은 이미지를 대체 이미지로 교체
-                            st.session_state.current_image = get_safe_placeholder_image()
+                            # 안전하지 않은 이미지를 대체 - 고양이 프롬프트 사용
+                            cat_prompt = "A cute cartoon-style cat with big eyes holding a sign that says 'Sorry' in a friendly and apologetic way. The cat looks innocent and is surrounded by soft, pastel-colored backgrounds."
+                            # 고양이 이미지 생성
+                            with st.spinner("안전한 대체 이미지를 생성 중입니다..."):
+                                cat_images = generate_image(cat_prompt, key_manager, num_images=1)
+                                if cat_images and len(cat_images) > 0:
+                                    st.session_state.current_image = cat_images[0]
+                                else:
+                                    # 이미지 생성 실패 시 기본 이미지 사용
+                                    st.session_state.current_image = Image.new('RGB', (400, 400), color=(255, 255, 255))
+                                    d = ImageDraw.Draw(st.session_state.current_image)
+                                    d.text((100, 200), "안전한 콘텐츠만 사용해주세요", fill=(0, 0, 0))
                         
                         # 프롬프트 안전성 검사
                         with st.spinner("입력 내용 처리 중..."):
@@ -1189,9 +1199,19 @@ def main():
                 
                 if not image_safety_result["safe"]:
                     st.error(f"안전하지 않은 이미지가 감지되었습니다: {image_safety_result['reason']}")
-                    st.warning("안전한 이미지만 업로드해주세요. AI가 안전한 대체 이미지를 제공합니다.")
-                    # 안전하지 않은 이미지를 대체 이미지로 교체
-                    image = get_safe_placeholder_image()
+                    st.warning("안전한 이미지만 업로드해주세요. AI가 안전한 대체 이미지를 생성합니다.")
+                    # 안전하지 않은 이미지를 대체 - 고양이 프롬프트 사용
+                    cat_prompt = "A cute cartoon-style cat with big eyes holding a sign that says 'Sorry' in a friendly and apologetic way. The cat looks innocent and is surrounded by soft, pastel-colored backgrounds."
+                    # 고양이 이미지 생성
+                    with st.spinner("안전한 대체 이미지를 생성 중입니다..."):
+                        cat_images = generate_image(cat_prompt, key_manager, num_images=1)
+                        if cat_images and len(cat_images) > 0:
+                            image = cat_images[0]
+                        else:
+                            # 이미지 생성 실패 시 기본 이미지 사용
+                            image = Image.new('RGB', (400, 400), color=(255, 255, 255))
+                            d = ImageDraw.Draw(image)
+                            d.text((100, 200), "안전한 콘텐츠만 사용해주세요", fill=(0, 0, 0))
 
                 st.image(image, caption="업로드된 이미지", use_column_width=True)
                 
