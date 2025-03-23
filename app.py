@@ -562,12 +562,24 @@ def main():
     st.title("이미지4키즈 (Image4Kids)")
     st.markdown("#### K-12 학생을 위한 안전한 AI 이미지 생성 플랫폼")
     
-    # 환경변수에서 API 키 로드하는 부분을 Streamlit secrets에서 로드하도록 변경
-    env_api_keys = st.secrets.get("gemini", {}).get("api_keys", "")
-    api_keys = []
-    
-    if env_api_keys:
+    # 시크릿에서 API 키 로드하는 부분 보강
+    try:
+        # Streamlit 시크릿에서 API 키 로드 시도
+        env_api_keys = st.secrets.get("gemini", {}).get("api_keys", "")
+        
+        # 시크릿이 없으면 환경변수에서 시도
+        if not env_api_keys:
+            env_api_keys = os.getenv('GEMINI_API_KEYS', "")
+        
+        # API 키 분리 및 공백 제거
         api_keys = [key.strip() for key in env_api_keys.split(',') if key.strip()]
+        
+        # API 키가 없으면 메시지 표시
+        if not api_keys:
+            st.sidebar.error("API 키가 설정되지 않았습니다. Streamlit 시크릿이나 환경변수에 GEMINI_API_KEYS를 설정해주세요.")
+    except Exception as e:
+        st.sidebar.error(f"API 키 로드 중 오류 발생: {str(e)}")
+        api_keys = []
     
     # API 키 입력 (환경변수에 키가 없거나 추가 키를 입력하는 경우를 위해)
     with st.sidebar:
@@ -648,39 +660,42 @@ def main():
                         st.success(f"{len(images)}개의 이미지가 생성되었습니다!")
                         
                         # 이미지 개수에 따라 열 수 조정
-                        if len(images) == 1:
-                            img_cols = [st.columns([1])]
-                        elif len(images) == 2:
-                            img_cols = [st.columns([1, 1])]
+                        if len(images) <= 2:
+                            img_cols = st.columns(len(images))
                         else:
-                            img_cols = [st.columns([1, 1]), st.columns([1, 1])]
+                            rows = (len(images) + 1) // 2
+                            img_cols = [st.columns(2) for _ in range(rows)]
                         
+                        # 이미지 표시
                         for i, img in enumerate(images):
-                            row = i // 2
-                            col = i % 2
-                            
-                            if len(images) <= 2:
-                                with img_cols[0][col]:
-                                    st.image(img, caption=f"생성된 이미지 #{i+1}", use_container_width=True)
-                                    
-                                    # 이미지 다운로드 기능
-                                    buffered = io.BytesIO()
-                                    img.save(buffered, format="PNG")
-                                    img_str = base64.b64encode(buffered.getvalue()).decode()
-                                    
-                                    href = f'<a href="data:image/png;base64,{img_str}" download="image{i+1}.png" class="download-btn">이미지 다운로드</a>'
-                                    st.markdown(href, unsafe_allow_html=True)
+                            if img is not None:  # None 체크 추가
+                                row, col = divmod(i, 2)
+                                
+                                # 레이아웃 설정에 따라 이미지 표시
+                                if len(images) <= 2:
+                                    with img_cols[i]:
+                                        st.image(img, caption=f"생성된 이미지 #{i+1}", use_container_width=True)
+                                        
+                                        # 이미지 다운로드 기능
+                                        buffered = io.BytesIO()
+                                        img.save(buffered, format="PNG")
+                                        img_str = base64.b64encode(buffered.getvalue()).decode()
+                                        
+                                        href = f'<a href="data:image/png;base64,{img_str}" download="generated_image{i+1}.png" class="download-btn">이미지 다운로드</a>'
+                                        st.markdown(href, unsafe_allow_html=True)
+                                else:
+                                    with img_cols[row][col]:
+                                        st.image(img, caption=f"생성된 이미지 #{i+1}", use_container_width=True)
+                                        
+                                        # 이미지 다운로드
+                                        buffered = io.BytesIO()
+                                        img.save(buffered, format="PNG")
+                                        img_str = base64.b64encode(buffered.getvalue()).decode()
+                                        
+                                        href = f'<a href="data:image/png;base64,{img_str}" download="generated_image{i+1}.png" class="download-btn">이미지 다운로드</a>'
+                                        st.markdown(href, unsafe_allow_html=True)
                             else:
-                                with img_cols[row][col]:
-                                    st.image(img, caption=f"생성된 이미지 #{i+1}", use_container_width=True)
-                                    
-                                    # 이미지 다운로드
-                                    buffered = io.BytesIO()
-                                    img.save(buffered, format="PNG")
-                                    img_str = base64.b64encode(buffered.getvalue()).decode()
-                                    
-                                    href = f'<a href="data:image/png;base64,{img_str}" download="image{i+1}.png" class="download-btn">이미지 다운로드</a>'
-                                    st.markdown(href, unsafe_allow_html=True)
+                                st.warning(f"이미지 #{i+1}을 생성하는 데 문제가 발생했습니다.")
                     else:
                         st.error("이미지 생성에 실패했습니다. 다시 시도해주세요.")
                         with st.expander("자세한 정보"):
@@ -917,16 +932,21 @@ def main():
                             st.subheader("AI로 향상된 그림")
                             img_cols = st.columns(len(modified_images))
                             for i, mod_img in enumerate(modified_images):
-                                with img_cols[i]:
-                                    st.image(mod_img, caption=f"향상된 이미지 #{i+1}", use_container_width=True)
-                                    
-                                    # 이미지 다운로드
-                                    buffered = io.BytesIO()
-                                    mod_img.save(buffered, format="PNG")
-                                    img_str = base64.b64encode(buffered.getvalue()).decode()
-                                    
-                                    href = f'<a href="data:image/png;base64,{img_str}" download="enhanced_image{i+1}.png" class="download-btn">이미지 다운로드</a>'
-                                    st.markdown(href, unsafe_allow_html=True)
+                                if mod_img is not None:  # None 체크 추가
+                                    with img_cols[i]:
+                                        st.image(mod_img, caption=f"향상된 이미지 #{i+1}", use_container_width=True)
+                                        
+                                        # 이미지 다운로드
+                                        buffered = io.BytesIO()
+                                        mod_img.save(buffered, format="PNG")
+                                        img_str = base64.b64encode(buffered.getvalue()).decode()
+                                        
+                                        href = f'<a href="data:image/png;base64,{img_str}" download="enhanced_image{i+1}.png" class="download-btn">이미지 다운로드</a>'
+                                        st.markdown(href, unsafe_allow_html=True)
+                                else:
+                                    st.warning(f"향상된 이미지 #{i+1}을 생성하는 데 문제가 발생했습니다.")
+                        else:
+                            st.error("이미지를 향상시키는 데 문제가 발생했습니다. 다시 시도해주세요.")
                 else:
                     st.info("왼쪽에서 그림 향상 설명을 입력하고 '그림 향상하기' 버튼을 클릭하면 결과가 여기에 표시됩니다.")
             
