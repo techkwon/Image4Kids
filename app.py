@@ -722,7 +722,7 @@ def main():
                                         # 레이아웃 설정에 따라 이미지 표시
                                         if len(images) <= 2:
                                             with img_cols[i]:
-                                                st.image(img, caption=f"생성된 이미지 #{i+1}", use_container_width=True)
+                                                st.image(img, caption=f"생성된 이미지 #{i+1}", use_column_width=True)
                                                 
                                                 # 이미지 다운로드 기능
                                                 try:
@@ -736,7 +736,7 @@ def main():
                                                     st.warning(f"이미지 다운로드 준비 중 오류 발생: {str(e)}")
                                         else:
                                             with img_cols[row][col]:
-                                                st.image(img, caption=f"생성된 이미지 #{i+1}", use_container_width=True)
+                                                st.image(img, caption=f"생성된 이미지 #{i+1}", use_column_width=True)
                                                 
                                                 # 이미지 다운로드
                                                 try:
@@ -837,7 +837,7 @@ def main():
                 
                 # 현재 그린 이미지 표시
                 if st.session_state.current_image:
-                    st.image(st.session_state.current_image, use_container_width=True, caption="내가 그린 그림")
+                    st.image(st.session_state.current_image, use_column_width=True, caption="내가 그린 그림")
                 
                 # 새로 그리기 버튼
                 if st.button("🖌️ 다시 그리기", use_container_width=True):
@@ -994,7 +994,7 @@ def main():
                                     try:
                                         if mod_img is not None and isinstance(mod_img, Image.Image):  # 타입 체크 추가
                                             with img_cols[i]:
-                                                st.image(mod_img, caption=f"향상된 이미지 #{i+1}", use_container_width=True)
+                                                st.image(mod_img, caption=f"향상된 이미지 #{i+1}", use_column_width=True)
                                                 
                                                 # 이미지 다운로드
                                                 try:
@@ -1035,7 +1035,7 @@ def main():
             if uploaded_file is not None:
                 # 이미지 업로드 처리
                 image = Image.open(uploaded_file)
-                st.image(image, caption="업로드된 이미지", use_container_width=True)
+                st.image(image, caption="업로드된 이미지", use_column_width=True)
                 
                 # 프롬프트 입력
                 modify_prompt = st.text_area("이미지 수정 설명", 
@@ -1075,10 +1075,10 @@ def main():
                             col1, col2 = st.columns(2)
                             
                             with col1:
-                                st.image(image, caption="원본 이미지", use_container_width=True)
+                                st.image(image, caption="원본 이미지", use_column_width=True)
                             
                             with col2:
-                                st.image(modified_img, caption="수정된 이미지", use_container_width=True)
+                                st.image(modified_img, caption="수정된 이미지", use_column_width=True)
                                 
                                 # 이미지 다운로드
                                 buffered = io.BytesIO()
